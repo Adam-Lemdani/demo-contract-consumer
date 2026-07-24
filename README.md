@@ -106,33 +106,48 @@ verify against a single provider manually.
 > default branch (needs `Contents: write`). The in-repo matrix is used here for
 > speed and self-containment.
 
-## GitHub App / PAT setup
+## GitHub App setup (the realistic identity)
 
-Same model as the provider. Production uses a **GitHub App** on both repos; a
-fine-grained **PAT** is a demo-only fallback.
+The workflows authenticate as a **GitHub App** — an independent bot actor owned
+by the account, not tied to any individual developer. See the provider README's
+"GitHub App setup" for the full rationale and step-by-step creation runbook; the
+App is the **same single App installed on both repos**. A fine-grained **PAT** is
+documented only as a demo-only fallback.
 
-### Required GitHub App permissions (verify against current GitHub docs)
+### Required GitHub App permissions (verified against current GitHub REST docs)
 
-| Scope | Access | Why |
-|-------|--------|-----|
-| **Metadata** | Read | Always required. |
-| **Contents** | Read (both repos) | Check out this repo + the provider (private) in the matrix. `Contents: write` only for the `repository_dispatch` alternative. |
-| **Commit statuses** | Read + write | Single branch-protection status check. |
-| **Pull requests** | Read + write | Single summary comment. |
-| **Checks** | Write | Only if using Check Runs instead of commit statuses. |
+All are **repository** permissions; install the App on **both** demo repos.
 
-> Verified: the `repository_dispatch` alternative requires `Contents: write`
-> (https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event).
-> The in-repo matrix needs only `Contents: read` on both repos + statuses/PR write.
+| Permission | Access | Why | Endpoint that requires it |
+|------------|--------|-----|---------------------------|
+| **Metadata** | Read | Mandatory baseline for every App. | — |
+| **Contents** | Read and write | *Read*: check out this repo + the provider at the PR SHA, read `pom.xml`, run Code Search. *Write*: the nightly generator pushes its `chore/service-graph` branch. | [Get content](https://docs.github.com/en/rest/repos/contents) / [Create/update file](https://docs.github.com/en/rest/repos/contents) |
+| **Pull requests** | Read and write | Create/update the single summary comment; the generator opens its PR. | [Create an issue comment](https://docs.github.com/en/rest/issues/comments) (a PR is an issue) |
+| **Commit statuses** | Read and write | Post the `contract-verification` status branch protection requires. | [Create a commit status](https://docs.github.com/en/rest/commits/statuses) |
+
+> Not needed: **Checks**, **Issues**, **Administration**, **Actions**.
+> `repository_dispatch` is not used.
+
+### Wire it in
+
+```bash
+export APP_ID=123456
+export APP_PRIVATE_KEY_FILE=~/Downloads/contract-verifier.private-key.pem
+./scripts/setup-demo.sh
+```
+
+Sets `PARTNER_REPO`, `APP_ID`, `APP_PRIVATE_KEY`, and branch protection. Run in
+**both** repos.
 
 ### Repository variables and secrets
 
 | Name | Kind | Notes |
 |------|------|-------|
-| `APP_ID` | Variable | GitHub App id. Empty → PAT fallback. |
+| `APP_ID` | Variable | GitHub App id. Set → App used; empty → `DISPATCH_PAT` fallback. |
 | `PARTNER_REPO` | Variable | `owner/demo-contract-provider`. Also used by `pr-build.yml` to fetch stubs. |
-| `APP_PRIVATE_KEY` | Secret | GitHub App private key (PEM). |
-| `DISPATCH_PAT` | Secret | Fine-grained PAT, demo only. |
+| `APP_PRIVATE_KEY` | Secret | GitHub App private key (PEM contents). |
+| `DISPATCH_PAT` | Secret | **Demo-only fallback** PAT (Contents R/W both repos, Commit statuses R/W, Pull requests R/W, Metadata R). Leave unset when using the App. |
+
 
 ## Dependency discovery (and its limits)
 
