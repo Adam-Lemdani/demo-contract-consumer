@@ -41,7 +41,7 @@ class BreakingConsumerScenarioTest {
         String stubBaseUrl = stubFinder.findStubUrl("demo-contract-provider").toString();
         UncontractedClient client = new UncontractedClient(stubBaseUrl);
 
-        assertThatThrownBy(() -> client.callWrongPath("Adam"))
+        assertThatThrownBy(() -> client.callWrongPath("Team"))
                 .isInstanceOf(RestClientResponseException.class);
     }
 }
