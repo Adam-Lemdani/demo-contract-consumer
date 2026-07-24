@@ -2,7 +2,7 @@
 
 A minimal Spring Boot **consumer** that calls the provider's greetings endpoint
 and verifies against its stubs using **Spring Cloud Contract Stub Runner** with
-`StubsMode.LOCAL` — **no broker**, **no artifact publishing**.
+`StubsMode.LOCAL` - **no broker**, **no artifact publishing**.
 
 - Java 21, Maven, Spring Boot 3.4.1, Spring Cloud 2024.0.0.
 - Client: `GreetingClient` → `GET /api/greetings/{name}`.
