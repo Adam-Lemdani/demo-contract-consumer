@@ -167,16 +167,3 @@ The generator opens a PR rather than pushing to `main`, so changes are audited.
 - **Filtered property literal (`@...@`) in test config**: run through Maven
   (`mvn test`), not the IDE without resource filtering.
 - **Discovery empty**: set `PARTNER_REPO` or use the `workflow_dispatch` inputs.
-
-## Remote setup (run yourself — not done automatically)
-
-```bash
-cd demo-contract-consumer
-git init && git add . && git commit -m "Initial consumer demo"
-gh repo create demo-contract-consumer --private --source=. --remote=origin --push
-gh variable set PARTNER_REPO --body "<you>/demo-contract-provider"
-gh variable set APP_ID       --body "<app-id>"
-gh secret   set APP_PRIVATE_KEY < app-private-key.pem
-gh secret   set DISPATCH_PAT  --body "<fine-grained-pat>"
-# Branch protection: require the 'contract-verification/provider' status check.
-```
