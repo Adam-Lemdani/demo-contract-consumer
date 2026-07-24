@@ -30,6 +30,7 @@ class GreetingClientStubRunnerTest {
 
         GreetingClient client = new GreetingClient(stubBaseUrl);
 
-        assertThat(client.greetingFor("Adam")).isEqualTo("Hello Adam");
+
+        assertThat(client.greetingFor("Team")).isEqualTo("Hello Team");
     }
 }
