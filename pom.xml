@@ -22,11 +22,13 @@
         <spring-cloud.version>2024.0.0</spring-cloud.version>
 
         <!--
-          The provider stub coordinates the consumer verifies against.
-          Exposed as overridable properties so cross-repo CI can point at the
-          exact version installed into the runner-local .m2. Nothing is hard-coded
-          throughout the code; tests read these via ${...} filtering into
-          test properties (see src/test/resources/application.properties).
+          Provider stub coordinates. The consumer's UPSTREAM dependency is
+          declared for Spring in src/test/resources/application.yml (stubrunner.ids);
+          the version is overridable so cross-repo CI can point at the exact
+          coordinates it just installed into the runner-local .m2:
+              mvn test -Dprovider.stubs.version=1.0.0-SNAPSHOT
+          These pom properties are forwarded to the test JVM via surefire
+          systemPropertyVariables (below) and resolved as ${...} in application.yml.
         -->
         <provider.stubs.groupId>com.example.demo</provider.stubs.groupId>
         <provider.stubs.artifactId>demo-contract-provider</provider.stubs.artifactId>
@@ -69,18 +71,27 @@
     </dependencies>
 
     <build>
-        <!-- Filter test resources so pom properties flow into test application.properties. -->
-        <testResources>
-            <testResource>
-                <directory>src/test/resources</directory>
-                <filtering>true</filtering>
-            </testResource>
-        </testResources>
-
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!--
+              Forward selected Maven properties into the forked test JVM so that
+              application.yml placeholders (${provider.stubs.version},
+              ${breaking.demo.enabled}) resolve. Overriding on the command line
+              (e.g. -Dprovider.stubs.version=...) flows straight through.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <provider.stubs.version>${provider.stubs.version}</provider.stubs.version>
+                        <breaking.demo.enabled>${breaking.demo.enabled}</breaking.demo.enabled>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
         </plugins>
     </build>

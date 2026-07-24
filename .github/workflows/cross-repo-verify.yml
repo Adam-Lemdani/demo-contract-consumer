@@ -1,0 +1,265 @@
+name: Cross-repo verify (consumer PR)
+
+# CONSUMER PR flow, in-repo matrix fan-out.
+#
+#   discover -> verify (matrix, one job per upstream provider, parallel) -> report
+#
+# UPSTREAM dependencies are read from src/test/resources/application.yml
+# (stubrunner.ids) — the single authoritative declaration also used by Spring
+# Cloud Contract Stub Runner. For each upstream provider we resolve its owning
+# repo, then in parallel check out the provider default branch, build its stubs
+# into a runner-local .m2, and run THIS consumer's changed tests (at the exact
+# PR SHA) against them. Results are aggregated into one status + summary comment.
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      provider_repo:
+        description: 'Verify against a single provider owner/name (manual fallback)'
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  group: cross-repo-verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      providers: ${{ steps.find.outputs.providers }}
+      consumer_sha: ${{ steps.ctx.outputs.consumer_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve PR SHA and upstream coordinates from application.yml
+        id: ctx
+        run: |
+          set -euo pipefail
+          SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "consumer_sha=$SHA" >> "$GITHUB_OUTPUT"
+          # Read UPSTREAM stub coordinates from the authoritative application.yml.
+          # stubrunner.ids entries look like: groupId:artifactId:version:classifier
+          command -v yq >/dev/null || sudo snap install yq >/dev/null 2>&1 || {
+            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq; }
+          COORDS=$(yq -r '.stubrunner.ids[]' src/test/resources/application.yml \
+                    | sed -E 's/^([^:]+):([^:]+):.*/\1:\2/' | sort -u)
+          echo "Upstream coordinates:"; echo "$COORDS"
+          # Emit as a space-separated list for the discovery script.
+          echo "coords<<EOF" >> "$GITHUB_OUTPUT"; echo "$COORDS" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Generate GitHub App token
+        id: app-token
+        if: vars.APP_ID != ''
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Resolve + confirm upstream provider repos
+        id: find
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token || secrets.DISPATCH_PAT }}
+          script: |
+            const coordsRaw = ${{ toJSON(steps.ctx.outputs.coords) }} || '';
+            const coords = coordsRaw.split('\n').map(s => s.trim()).filter(Boolean);
+
+            const candidates = new Set();
+            const manual = ${{ toJSON(github.event.inputs.provider_repo) }};
+            if (manual) candidates.add(manual);
+            const configured = ${{ toJSON(vars.PARTNER_REPO) }};
+            if (configured) candidates.add(configured);
+
+            // For each upstream coordinate, find the repo that PRODUCES it.
+            // Code Search is text-based, may lag indexing, and is NOT authoritative.
+            for (const c of coords) {
+              const artifactId = c.split(':')[1];
+              if (!artifactId) continue;
+              try {
+                const q = `"<artifactId>${artifactId}</artifactId>" in:file filename:pom.xml`;
+                const res = await github.rest.search.code({ q, per_page: 50 });
+                for (const it of res.data.items) candidates.add(it.repository.full_name);
+              } catch (e) { core.warning(`Code Search unavailable: ${e.message}`); }
+            }
+
+            // Confirm each candidate actually PRODUCES one of the coordinates.
+            const artifactIds = coords.map(c => c.split(':')[1]).filter(Boolean);
+            const confirmed = [];
+            for (const full of candidates) {
+              const [owner, repo] = full.split('/');
+              if (!owner || !repo || full === context.repo.owner + '/' + context.repo.repo) continue;
+              try {
+                const pom = await github.rest.repos.getContent({ owner, repo, path: 'pom.xml' });
+                const text = Buffer.from(pom.data.content, 'base64').toString('utf8');
+                if (artifactIds.some(a => new RegExp(`<artifactId>\\s*${a}\\s*</artifactId>`).test(text)))
+                  confirmed.push(full);
+                else core.info(`Skip ${full}: does not produce upstream coordinates`);
+              } catch (e) { core.info(`Skip ${full}: ${e.message}`); }
+            }
+            core.info(`Confirmed providers: ${confirmed.join(', ') || '(none)'}`);
+            core.setOutput('providers', JSON.stringify(confirmed));
+
+  verify:
+    needs: discover
+    if: needs.discover.outputs.providers != '[]' && needs.discover.outputs.providers != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        provider: ${{ fromJson(needs.discover.outputs.providers) }}
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        if: vars.APP_ID != ''
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            ${{ github.event.repository.name }}
+            ${{ matrix.provider }}
+
+      - name: Checkout consumer at PR SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.discover.outputs.consumer_sha }}
+          fetch-depth: 1
+          path: consumer
+
+      - name: Checkout provider default branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.provider }}
+          token: ${{ steps.app-token.outputs.token || secrets.DISPATCH_PAT || github.token }}
+          fetch-depth: 1
+          path: provider
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build provider stubs (runner-local .m2) + run consumer PR tests
+        id: run
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          M2="${{ runner.temp }}/m2"
+          mvn -B -ntp -f provider/pom.xml clean install -Dmaven.repo.local="$M2"
+          PVER=$(mvn -q -N -f provider/pom.xml help:evaluate -Dexpression=project.version -DforceStdout)
+          mvn -B -ntp -f consumer/pom.xml test -Dmaven.repo.local="$M2" -Dprovider.stubs.version="$PVER"
+
+      - name: Record result
+        if: always()
+        run: |
+          mkdir -p results
+          SAFE=$(echo "${{ matrix.provider }}" | tr '/' '_')
+          RUN="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          printf '{"repo":"%s","outcome":"%s","job_url":"%s"}\n' \
+            "${{ matrix.provider }}" "${{ steps.run.outcome }}" "$RUN/job/${{ github.job }}" > "results/$SAFE.json"
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ strategy.job-index }}
+          path: results/*.json
+          retention-days: 1
+
+  report:
+    needs: [ discover, verify ]
+    if: always() && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download results
+        uses: actions/download-artifact@v4
+        with:
+          path: results
+          pattern: result-*
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Generate GitHub App token
+        id: app-token
+        if: vars.APP_ID != ''
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Aggregate + report on PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token || secrets.DISPATCH_PAT || github.token }}
+          script: |
+            const fs = require('fs');
+            const sha = ${{ toJSON(needs.discover.outputs.consumer_sha) }};
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            let results = [];
+            try {
+              for (const f of fs.readdirSync('results')) {
+                if (f.endsWith('.json')) results.push(JSON.parse(fs.readFileSync(`results/${f}`,'utf8')));
+              }
+            } catch (e) { core.info(`No result files: ${e.message}`); }
+
+            const failed = results.filter(r => r.outcome !== 'success');
+            const passed = results.filter(r => r.outcome === 'success');
+            const noProviders = results.length === 0;
+            const success = failed.length === 0;
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner, repo: context.repo.repo, sha,
+              state: success ? 'success' : 'failure',
+              context: 'contract-verification',
+              target_url: runUrl,
+              description: noProviders ? 'No upstream providers resolved'
+                : (success ? `Passes against ${passed.length} provider(s)` : `${failed.length} provider(s) failing`),
+            });
+
+            if (!context.payload.pull_request) return;
+
+            const marker = '<!-- contract-verification:upstream -->';
+            const line = r => `- ${r.outcome === 'success' ? '✅' : '❌'} \`${r.repo}\` ([job](${r.job_url}))`;
+            let body = `${marker}\n### Contract verification — upstream providers\n`;
+            if (noProviders) {
+              body += `No upstream providers resolved from application.yml. Nothing to verify.\n`;
+            } else if (success) {
+              body += `✅ **Consumer PR \`${sha.substring(0,7)}\` passes** against all ${passed.length} provider(s).\n\n` +
+                      passed.map(line).join('\n');
+            } else {
+              body += `❌ **Breaking change** — consumer PR \`${sha.substring(0,7)}\` fails against ${failed.length} provider(s):\n\n` +
+                      failed.map(line).join('\n') +
+                      (passed.length ? `\n\nPassing:\n` + passed.map(line).join('\n') : '');
+            }
+            body += `\n\n[Verification run](${runUrl})`;
+
+            const pr = context.payload.pull_request.number;
+            const { data: comments } = await github.rest.issues.listComments(
+              { owner: context.repo.owner, repo: context.repo.repo, issue_number: pr });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) await github.rest.issues.updateComment(
+              { owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment(
+              { owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, body });
+
+            if (!success) core.setFailed(`${failed.length} provider(s) failing`);

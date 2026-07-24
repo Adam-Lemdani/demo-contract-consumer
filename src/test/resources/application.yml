@@ -1,0 +1,30 @@
+# Test configuration for the consumer.
+#
+# UPSTREAM DEPENDENCY DECLARATION
+# -------------------------------
+# The provider(s) this consumer depends on are declared here (not in a Java
+# annotation) so both Spring Cloud Contract Stub Runner AND the CI discovery
+# workflow can read them from one authoritative place.
+#
+#   * Spring: `stubrunner.ids` + `stubrunner.stubs-mode` drive Stub Runner.
+#   * CI:     dispatch-to-provider.yml parses `stubrunner.ids` with yq to learn
+#             the upstream groupId:artifactId, then confirms the owning repo.
+#
+# The version is a placeholder so cross-repo CI can override it to match the
+# exact stubs it installed into the runner-local .m2:
+#     mvn test -Dprovider.stubs.version=<sha-or-version>
+# (forwarded into the test JVM by surefire systemPropertyVariables in pom.xml).
+stubrunner:
+  ids:
+    - "com.example.demo:demo-contract-provider:${provider.stubs.version:1.0.0-SNAPSHOT}:stubs"
+  stubs-mode: LOCAL
+
+# Present so the GreetingClient bean can start; tests build their own client
+# pointed at the Stub Runner port via StubFinder.
+provider:
+  base-url: "http://localhost:8080"
+
+# Flips the deliberately-breaking demo test on under -Pbreaking-demo.
+breaking:
+  demo:
+    enabled: ${breaking.demo.enabled:false}

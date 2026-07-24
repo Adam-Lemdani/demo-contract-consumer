@@ -9,8 +9,11 @@ and verifies against its stubs using **Spring Cloud Contract Stub Runner** with
 - Integration test: `GreetingClientStubRunnerTest` replays the provider's LOCAL
   stubs.
 - Provider stub coordinates are **overridable properties**, not hard-coded
-  through the code (`provider.stubs.groupId/artifactId/version` in `pom.xml`,
-  filtered into `src/test/resources/application.properties`).
+  through the code. The **upstream dependency is declared once** in
+  `src/test/resources/application.yml` (`stubrunner.ids`) — read by both Spring
+  Cloud Contract Stub Runner and the CI discovery step. The version is a
+  placeholder (`${provider.stubs.version:1.0.0-SNAPSHOT}`) forwarded from Maven
+  into the test JVM by surefire, so CI can override it per build.
 
 ## What the demo proves / does not prove
 
@@ -31,22 +34,29 @@ sequenceDiagram
     autonumber
     actor Dev as Developer
     participant CP as Consumer PR
-    participant CW as Consumer Actions
-    participant PW as Provider Actions (receiver)
+    participant D as discover job
+    participant M as verify matrix (parallel, 1 job / provider)
+    participant R as report job
     participant GH as GitHub API
 
     Dev->>CP: Open / update PR
-    CP->>CW: pr-build.yml (checkout provider default, install stubs, test)
-    CP->>CW: dispatch-to-provider.yml
-    CW->>GH: Read stub coords, Code Search + confirm provider pom
-    CW->>PW: repository_dispatch verify-consumer-change {consumer_sha}
-    Note over PW: One job checks out BOTH repos
-    PW->>PW: checkout provider default + consumer@SHA
-    PW->>PW: mvn install provider -> runner-local .m2 (stubs)
-    PW->>PW: mvn test consumer@SHA (StubsMode.LOCAL)
-    PW->>GH: commit status + summary comment on Consumer PR
+    CP->>D: cross-repo-verify.yml
+    D->>D: read UPSTREAM coords from application.yml (stubrunner.ids)
+    D->>GH: resolve + confirm owning provider repo(s)
+    D-->>M: matrix = [confirmed providers]
+    par one job per provider (fail-fast:false, max-parallel:10)
+        M->>M: checkout provider@default (depth 1) + consumer@SHA (depth 1)
+        M->>M: mvn install provider -> runner-local .m2 (stubs)
+        M->>M: mvn test consumer@SHA (StubsMode.LOCAL)
+        M->>R: upload result artifact (pass/fail + job link)
+    end
+    R->>GH: single commit status + one summary comment
     GH-->>CP: ✅/❌ required status check
 ```
+
+> Each matrix job checks out only **two** repos with `fetch-depth: 1`; providers
+> are usually one, so this is fast. See the root presentation guide for the full
+> performance rationale.
 
 ## Local test instructions
 
@@ -86,8 +96,15 @@ is exactly what cross-repo verification reports on the PR.
 | File | Trigger | Purpose |
 |------|---------|---------|
 | `pr-build.yml` | `pull_request`, `workflow_dispatch` | Checkout provider default, install stubs to runner-local `.m2`, run consumer tests. |
-| `dispatch-to-provider.yml` | `pull_request`, `workflow_dispatch` | Discover the upstream provider from stub coords and dispatch verification. |
-| `verify-against-provider.yml` | `repository_dispatch: verify-provider-change`, `workflow_dispatch` | Receiver for the **provider PR flow**: build provider@SHA stubs locally, run consumer tests, report to provider PR. |
+| `cross-repo-verify.yml` | `pull_request`, `workflow_dispatch` | `discover` upstream providers from `application.yml` (`stubrunner.ids`) → `verify` matrix (parallel, one job per provider; builds provider stubs, runs this consumer's PR tests) → `report` single status + summary comment. |
+
+`cross-repo-verify.yml` accepts a `workflow_dispatch` input (`provider_repo`) to
+verify against a single provider manually.
+
+> **Alternative (cross-org / partner-owned):** swap the matrix for a
+> `repository_dispatch` to the provider repo plus a receiver workflow on its
+> default branch (needs `Contents: write`). The in-repo matrix is used here for
+> speed and self-containment.
 
 ## GitHub App / PAT setup
 
@@ -99,13 +116,14 @@ fine-grained **PAT** is a demo-only fallback.
 | Scope | Access | Why |
 |-------|--------|-----|
 | **Metadata** | Read | Always required. |
-| **Contents** | Read + write | `Contents: write` required to create `repository_dispatch`; read to check out. |
-| **Commit statuses** | Read + write | Branch-protection status check. |
+| **Contents** | Read (both repos) | Check out this repo + the provider (private) in the matrix. `Contents: write` only for the `repository_dispatch` alternative. |
+| **Commit statuses** | Read + write | Single branch-protection status check. |
 | **Pull requests** | Read + write | Single summary comment. |
 | **Checks** | Write | Only if using Check Runs instead of commit statuses. |
 
-> Verified: creating a repository dispatch event requires `Contents: write`
+> Verified: the `repository_dispatch` alternative requires `Contents: write`
 > (https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event).
+> The in-repo matrix needs only `Contents: read` on both repos + statuses/PR write.
 
 ### Repository variables and secrets
 
