@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# Prerequisites:
-#   - gh CLI installed and authenticated as the repo owner (`gh auth login`).
-#   - You have created a GitHub App and installed it on both demo repos.
-#   - You have its App ID and a downloaded private-key .pem file.
-#
-# Env:
-#   APP_ID                 numeric App ID            (required)
-#   APP_PRIVATE_KEY_FILE   path to the App .pem file (required)
-#   DISPATCH_PAT           optional demo-only PAT fallback (leave unset for App-only)
 set -euo pipefail
 
 SELF_REPO="demo-contract-consumer"
