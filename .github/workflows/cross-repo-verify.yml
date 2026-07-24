@@ -143,9 +143,6 @@ jobs:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-          repositories: |
-            ${{ github.event.repository.name }}
-            ${{ matrix.provider }}
 
       - name: Checkout consumer at PR SHA
         uses: actions/checkout@v4
