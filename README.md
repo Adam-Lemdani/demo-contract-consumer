@@ -10,7 +10,7 @@ and verifies against its stubs using **Spring Cloud Contract Stub Runner** with
   stubs.
 - Provider stub coordinates are **overridable properties**, not hard-coded
   through the code. The **upstream dependency is declared once** in
-  `src/test/resources/application.yml` (`stubrunner.ids`) — read by both Spring
+  `src/test/resources/application.yml` (`stubrunner.ids`) - read by both Spring
   Cloud Contract Stub Runner and the CI discovery step. The version is a
   placeholder (`${provider.stubs.version:1.0.0-SNAPSHOT}`) forwarded from Maven
   into the test JVM by surefire, so CI can override it per build.
@@ -19,7 +19,7 @@ and verifies against its stubs using **Spring Cloud Contract Stub Runner** with
 
 **Proves:** A consumer PR (or an upstream provider PR) triggers an automated flow
 that runs the **real consumer tests** against provider stubs built from an exact
-commit, in a runner-local `.m2`, and reports pass/fail on the PR — no manual
+commit, in a runner-local `.m2`, and reports pass/fail on the PR - no manual
 Maven, nothing published.
 
 **Does not prove:** Full discovery of all provider/consumer relationships, or
@@ -75,9 +75,9 @@ mvn clean test -Dprovider.stubs.version=1.0.0-SNAPSHOT
 
 ### Positive and breaking scenarios
 
-- **Positive** — `GreetingClientStubRunnerTest`: runs by default, asserts
+- **Positive** - `GreetingClientStubRunnerTest`: runs by default, asserts
   `Hello Adam` from the LOCAL stub.
-- **Breaking** — `BreakingConsumerScenarioTest`: skipped by default; enable with:
+- **Breaking** - `BreakingConsumerScenarioTest`: skipped by default; enable with:
 
   ```bash
   mvn test -Pbreaking-demo
@@ -88,7 +88,7 @@ mvn clean test -Dprovider.stubs.version=1.0.0-SNAPSHOT
   response is detected against the provider stubs.
 
 A real breaking consumer change (e.g. editing `GreetingClient` to call the wrong
-path or expect a missing field) makes `GreetingClientStubRunnerTest` fail — which
+path or expect a missing field) makes `GreetingClientStubRunnerTest` fail - which
 is exactly what cross-repo verification reports on the PR.
 
 ## Workflows
@@ -136,7 +136,7 @@ fine-grained **PAT** is a demo-only fallback.
 
 ## Dependency discovery (and its limits)
 
-See the provider README — identical caveats. The consumer discovers its provider
+See the provider README - identical caveats. The consumer discovers its provider
 from the Spring Cloud Contract stub coordinates, confirms the candidate's
 `pom.xml`, and falls back to `PARTNER_REPO`. Code Search is text-based and not
 authoritative; production likely needs a generated typed service graph with an
@@ -157,16 +157,3 @@ audited manual override.
 - **Filtered property literal (`@...@`) in test config**: run through Maven
   (`mvn test`), not the IDE without resource filtering.
 - **Discovery empty**: set `PARTNER_REPO` or use the `workflow_dispatch` inputs.
-
-## Remote setup (run yourself — not done automatically)
-
-```bash
-cd demo-contract-consumer
-git init && git add . && git commit -m "Initial consumer demo"
-gh repo create demo-contract-consumer --private --source=. --remote=origin --push
-gh variable set PARTNER_REPO --body "<you>/demo-contract-provider"
-gh variable set APP_ID       --body "<app-id>"
-gh secret   set APP_PRIVATE_KEY < app-private-key.pem
-gh secret   set DISPATCH_PAT  --body "<fine-grained-pat>"
-# Branch protection: require the 'contract-verification/provider' status check.
-```
