@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-#
-# One-time GitHub configuration for the demo-contract-consumer repo on a
-# PERSONAL account (no org, no GitHub App approval needed).
-#
-# Prerequisites:
-#   - gh CLI installed and authenticated as your personal user (`gh auth login`)
-#   - A fine-grained PAT with access to BOTH demo repos, with permissions:
-#       Contents: Read | Commit statuses: Read/Write | Pull requests: Read/Write | Metadata: Read
-#     Export it before running:  export DISPATCH_PAT=github_pat_xxx
-#
 # Usage:
 #   export DISPATCH_PAT=github_pat_xxx
 #   ./scripts/setup-demo.sh            # infers owner from `gh api user`
