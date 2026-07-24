@@ -1,0 +1,49 @@
+name: PR Build (consumer)
+
+# Normal per-PR build. The consumer genuinely needs the provider stubs, which
+# are NOT published to any remote repository. So we check out the provider's
+# default branch, install its stubs into this job's runner-local .m2, then run
+# the consumer tests against them. Honest and self-contained.
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-build-consumer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout consumer
+        uses: actions/checkout@v4
+        with:
+          path: consumer
+
+      - name: Checkout provider (default branch) for local stubs
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.PARTNER_REPO }}
+          path: provider
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install provider stubs into runner-local .m2, then test consumer
+        run: |
+          set -euo pipefail
+          M2="${{ runner.temp }}/m2"
+          mvn -B -ntp -f provider/pom.xml clean install -Dmaven.repo.local="$M2"
+          PVER=$(mvn -q -N -f provider/pom.xml -Dexec.executable=echo -Dexec.args='${project.version}' org.codehaus.mojo:exec-maven-plugin:3.1.0:exec | tail -1)
+          mvn -B -ntp -f consumer/pom.xml clean test \
+            -Dmaven.repo.local="$M2" \
+            -Dprovider.stubs.version="$PVER"
