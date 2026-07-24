@@ -2,7 +2,7 @@
 
 A minimal Spring Boot **consumer** that calls the provider's greetings endpoint
 and verifies against its stubs using **Spring Cloud Contract Stub Runner** with
-`StubsMode.LOCAL` — **no broker**, **no artifact publishing**.
+`StubsMode.LOCAL` - **no broker**, **no artifact publishing**.
 
 - Java 21, Maven, Spring Boot 3.4.1, Spring Cloud 2024.0.0.
 - Client: `GreetingClient` → `GET /api/greetings/{name}`.
@@ -125,41 +125,17 @@ All are **repository** permissions; install the App on **both** demo repos.
 | **Pull requests** | Read and write | Create/update the single summary comment; the generator opens its PR. | [Create an issue comment](https://docs.github.com/en/rest/issues/comments) (a PR is an issue) |
 | **Commit statuses** | Read and write | Post the `contract-verification` status branch protection requires. | [Create a commit status](https://docs.github.com/en/rest/commits/statuses) |
 
-> Not needed: **Checks**, **Issues**, **Administration**, **Actions**.
-> `repository_dispatch` is not used.
-
-### Wire it in
-
-```bash
-export APP_ID=123456
-export APP_PRIVATE_KEY_FILE=~/Downloads/contract-verifier.private-key.pem
-./scripts/setup-demo.sh
-```
-
-Sets `PARTNER_REPO`, `APP_ID`, `APP_PRIVATE_KEY`, and branch protection. Run in
-**both** repos.
-
-### Repository variables and secrets
-
-| Name | Kind | Notes |
-|------|------|-------|
-| `APP_ID` | Variable | GitHub App id. Set → App used; empty → `DISPATCH_PAT` fallback. |
-| `PARTNER_REPO` | Variable | `owner/demo-contract-provider`. Also used by `pr-build.yml` to fetch stubs. |
-| `APP_PRIVATE_KEY` | Secret | GitHub App private key (PEM contents). |
-| `DISPATCH_PAT` | Secret | **Demo-only fallback** PAT (Contents R/W both repos, Commit statuses R/W, Pull requests R/W, Metadata R). Leave unset when using the App. |
-
-
 ## Dependency discovery (and its limits)
 
 Three tiers, in priority order:
 
-1. **Service graph (Tier-3, preferred)** — `.github/service-graph.json`, read
+1. **Service graph (Tier-3, preferred)** - `.github/service-graph.json`, read
    first by the `discover` job. `upstreamProviders` is regenerated nightly by
    `.github/workflows/service-graph-generator.yml` from `application.yml`
    (`stubrunner.ids`) resolved via confirmed Code Search;
    `manualOverrides.upstreamProviders` is preserved. Bare names get the repo
    owner inferred at runtime.
-2. **`PARTNER_REPO`** — deterministic fallback.
+2. **`PARTNER_REPO`** - deterministic fallback.
 3. **application.yml coordinates + Code Search** — the consumer's upstream is
    declared authoritatively in `stubrunner.ids`; Code Search only resolves which
    repo *produces* those coordinates, and is text-based / not authoritative.
