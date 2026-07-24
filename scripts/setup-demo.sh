@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-#
-# One-time GitHub configuration for demo-contract-consumer using a GitHub App
-# (the realistic production identity — not tied to any individual developer).
-#
-# The App is created ONCE in the GitHub UI (see README "GitHub App setup"),
-# installed on BOTH demo repos, and acts as its own bot actor. Developers do
-# nothing except raise PRs.
-#
 # Prerequisites:
 #   - gh CLI installed and authenticated as the repo owner (`gh auth login`).
 #   - You have created a GitHub App and installed it on both demo repos.
@@ -16,12 +8,6 @@
 #   APP_ID                 numeric App ID            (required)
 #   APP_PRIVATE_KEY_FILE   path to the App .pem file (required)
 #   DISPATCH_PAT           optional demo-only PAT fallback (leave unset for App-only)
-#
-# Usage:
-#   export APP_ID=123456
-#   export APP_PRIVATE_KEY_FILE=~/Downloads/contract-verifier.private-key.pem
-#   ./scripts/setup-demo.sh            # infers owner from `gh api user`
-#   ./scripts/setup-demo.sh <owner>    # or pass your username explicitly
 set -euo pipefail
 
 SELF_REPO="demo-contract-consumer"
