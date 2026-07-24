@@ -74,14 +74,26 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token || secrets.DISPATCH_PAT }}
           script: |
+            const fs = require('fs');
             const coordsRaw = ${{ toJSON(steps.ctx.outputs.coords) }} || '';
             const coords = coordsRaw.split('\n').map(s => s.trim()).filter(Boolean);
 
             const candidates = new Set();
+            const owner = context.repo.owner;
+            const norm = r => r.includes('/') ? r : `${owner}/${r}`;
+
+            // Tier-3 (preferred): authoritative, audited service graph.
+            try {
+              const g = JSON.parse(fs.readFileSync('.github/service-graph.json', 'utf8'));
+              for (const r of (g.upstreamProviders || [])) candidates.add(norm(r));
+              for (const r of ((g.manualOverrides || {}).upstreamProviders || [])) candidates.add(norm(r));
+              core.info(`Service graph providers: ${[...candidates].join(', ') || '(none)'}`);
+            } catch (e) { core.info(`No service graph (${e.message}); relying on application.yml + search.`); }
+
             const manual = ${{ toJSON(github.event.inputs.provider_repo) }};
-            if (manual) candidates.add(manual);
+            if (manual) candidates.add(norm(manual));
             const configured = ${{ toJSON(vars.PARTNER_REPO) }};
-            if (configured) candidates.add(configured);
+            if (configured) candidates.add(norm(configured));
 
             // For each upstream coordinate, find the repo that PRODUCES it.
             // Code Search is text-based, may lag indexing, and is NOT authoritative.

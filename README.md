@@ -136,11 +136,21 @@ fine-grained **PAT** is a demo-only fallback.
 
 ## Dependency discovery (and its limits)
 
-See the provider README — identical caveats. The consumer discovers its provider
-from the Spring Cloud Contract stub coordinates, confirms the candidate's
-`pom.xml`, and falls back to `PARTNER_REPO`. Code Search is text-based and not
-authoritative; production likely needs a generated typed service graph with an
-audited manual override.
+Three tiers, in priority order:
+
+1. **Service graph (Tier-3, preferred)** — `.github/service-graph.json`, read
+   first by the `discover` job. `upstreamProviders` is regenerated nightly by
+   `.github/workflows/service-graph-generator.yml` from `application.yml`
+   (`stubrunner.ids`) resolved via confirmed Code Search;
+   `manualOverrides.upstreamProviders` is preserved. Bare names get the repo
+   owner inferred at runtime.
+2. **`PARTNER_REPO`** — deterministic fallback.
+3. **application.yml coordinates + Code Search** — the consumer's upstream is
+   declared authoritatively in `stubrunner.ids`; Code Search only resolves which
+   repo *produces* those coordinates, and is text-based / not authoritative.
+
+Every candidate is **confirmed** by reading its `pom.xml` before verification.
+The generator opens a PR rather than pushing to `main`, so changes are audited.
 
 ## Security model / limitations
 

@@ -1,0 +1,113 @@
+name: Regenerate service graph (consumer)
+
+# Tier-3 discovery: nightly regeneration of .github/service-graph.json.
+#
+# What it does:
+#   * upstreamProviders <- read from src/test/resources/application.yml
+#     (stubrunner.ids), resolve each coordinate to its producing repo via Code
+#     Search, CONFIRMED by reading the candidate pom.xml.
+#   * manualOverrides are PRESERVED verbatim.
+#   * Opens a PR if the graph changed.
+
+on:
+  schedule:
+    - cron: '23 3 * * *'      # nightly 03:23 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: service-graph-consumer
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Extract upstream coordinates from application.yml
+        id: coords
+        run: |
+          set -euo pipefail
+          command -v yq >/dev/null || sudo snap install yq >/dev/null 2>&1 || {
+            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq; }
+          COORDS=$(yq -r '.stubrunner.ids[]' src/test/resources/application.yml \
+                    | sed -E 's/^([^:]+):([^:]+):.*/\1:\2/' | sort -u)
+          echo "coords<<EOF" >> "$GITHUB_OUTPUT"; echo "$COORDS" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Generate GitHub App token
+        id: app-token
+        if: vars.APP_ID != ''
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Rebuild upstreamProviders (confirmed) + preserve overrides
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token || secrets.DISPATCH_PAT }}
+          script: |
+            const fs = require('fs');
+            const path = '.github/service-graph.json';
+            const coordsRaw = ${{ toJSON(steps.coords.outputs.coords) }} || '';
+            const coords = coordsRaw.split('\n').map(s => s.trim()).filter(Boolean);
+            const artifactIds = coords.map(c => c.split(':')[1]).filter(Boolean);
+            const owner = context.repo.owner;
+            const self = `${owner}/${context.repo.repo}`;
+
+            const g = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const overrides = (g.manualOverrides && g.manualOverrides.upstreamProviders) || [];
+
+            const found = new Set();
+            const configured = ${{ toJSON(vars.PARTNER_REPO) }};
+            if (configured) found.add(configured);
+
+            for (const a of artifactIds) {
+              try {
+                const q = `"<artifactId>${a}</artifactId>" in:file filename:pom.xml`;
+                const res = await github.rest.search.code({ q, per_page: 100 });
+                for (const it of res.data.items) found.add(it.repository.full_name);
+              } catch (e) { core.warning(`Code Search unavailable: ${e.message}`); }
+            }
+
+            const confirmed = [];
+            for (const full of found) {
+              if (full === self) continue;
+              const [o, r] = full.split('/');
+              try {
+                const pom = await github.rest.repos.getContent({ owner: o, repo: r, path: 'pom.xml' });
+                const text = Buffer.from(pom.data.content, 'base64').toString('utf8');
+                if (artifactIds.some(a => new RegExp(`<artifactId>\\s*${a}\\s*</artifactId>`).test(text)))
+                  confirmed.push(full);
+              } catch (e) { core.info(`Skip ${full}: ${e.message}`); }
+            }
+
+            const bare = f => f.startsWith(owner + '/') ? f.slice(owner.length + 1) : f;
+            g.upstreamProviders = [...new Set(confirmed.map(bare))].sort();
+            g.manualOverrides.upstreamProviders = overrides;
+            fs.writeFileSync(path, JSON.stringify(g, null, 2) + '\n');
+            core.info(`upstreamProviders = ${JSON.stringify(g.upstreamProviders)}`);
+
+      - name: Open PR if the graph changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ github.token }}
+          branch: chore/service-graph
+          commit-message: "chore: regenerate service graph"
+          title: "chore: regenerate service graph"
+          body: |
+            Automated Tier-3 service-graph regeneration.
+
+            `upstreamProviders` rebuilt from application.yml + confirmed Code Search.
+            `manualOverrides` preserved. Review before merging.
+          add-paths: .github/service-graph.json
+          delete-branch: true
