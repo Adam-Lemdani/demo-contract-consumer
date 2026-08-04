@@ -1,11 +1,12 @@
 # demo-contract-consumer
 
 A minimal Spring Boot **consumer** that calls the provider's greetings endpoint
-and verifies against its stubs using **Spring Cloud Contract Stub Runner** with
-`StubsMode.LOCAL` - **no broker**, **no artifact publishing**.
+with a JSON payload and verifies against its stubs using **Spring Cloud
+Contract Stub Runner** with `StubsMode.LOCAL` - **no broker**, **no artifact
+publishing**.
 
 - Java 21, Maven, Spring Boot 3.4.1, Spring Cloud 2024.0.0.
-- Client: `GreetingClient` → `GET /api/greetings/{name}`.
+- Client: `GreetingClient` → `POST /api/greetings` with `{"name":"..."}`.
 - Integration test: `GreetingClientStubRunnerTest` replays the provider's LOCAL
   stubs.
 - Provider stub coordinates are **overridable properties**, not hard-coded
@@ -20,7 +21,8 @@ and verifies against its stubs using **Spring Cloud Contract Stub Runner** with
 **Proves:** A consumer PR (or an upstream provider PR) triggers an automated flow
 that runs the **real consumer tests** against provider stubs built from an exact
 commit, in a runner-local `.m2`, and reports pass/fail on the PR — no manual
-Maven, nothing published.
+Maven, nothing published. The payload contract means request-field and
+response-field changes both fail visibly.
 
 **Does not prove:** Full discovery of all provider/consumer relationships, or
 correctness of runtime concerns outside the contract. Building the provider and
@@ -76,20 +78,20 @@ mvn clean test -Dprovider.stubs.version=1.0.0-SNAPSHOT
 ### Positive and breaking scenarios
 
 - **Positive** — `GreetingClientStubRunnerTest`: runs by default, asserts
-  `Hello Adam` from the LOCAL stub.
+  `Hello Team` from the LOCAL stub.
 - **Breaking** — `BreakingConsumerScenarioTest`: skipped by default; enable with:
 
   ```bash
   mvn test -Pbreaking-demo
   ```
 
-  It calls an **uncontracted path** (`/api/salutations/{name}`) the stub does not
-  serve, demonstrating that a consumer change to a different path / unsupported
-  response is detected against the provider stubs.
+  It sends an **uncontracted JSON payload** (`{"fullName":"Team"}`) the stub does
+  not serve, demonstrating that a consumer change to a different request shape
+  or unsupported response is detected against the provider stubs.
 
-A real breaking consumer change (e.g. editing `GreetingClient` to call the wrong
-path or expect a missing field) makes `GreetingClientStubRunnerTest` fail — which
-is exactly what cross-repo verification reports on the PR.
+A real breaking consumer change (e.g. editing `GreetingClient` to send the wrong
+field name or expect a missing field) makes `GreetingClientStubRunnerTest` fail
+— which is exactly what cross-repo verification reports on the PR.
 
 ## Workflows
 

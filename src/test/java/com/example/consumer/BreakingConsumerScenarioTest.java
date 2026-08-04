@@ -17,11 +17,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>Disabled by default so {@code mvn test} stays green. Enable the demo with:
  * <pre>mvn test -Pbreaking-demo</pre>
  *
- * <p>It calls a path the provider contract does NOT define. The LOCAL stub has
- * no mapping for it, so Stub Runner returns 404 and the client throws. This
- * mirrors what a real breaking consumer change (new/renamed path or unsupported
- * response) would do in cross-repo verification: the changed consumer tests run
- * against the provider contract/stubs and fail.
+ * <p>It sends the wrong JSON shape to the provider. The LOCAL stub has no
+ * mapping for it, so Stub Runner returns 404 and the client throws. This mirrors
+ * what a real breaking consumer change (renamed request field or unsupported
+ * response shape) would do in cross-repo verification: the changed consumer
+ * tests run against the provider contract/stubs and fail.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @AutoConfigureStubRunner
@@ -41,7 +41,7 @@ class BreakingConsumerScenarioTest {
         String stubBaseUrl = stubFinder.findStubUrl("demo-contract-provider").toString();
         UncontractedClient client = new UncontractedClient(stubBaseUrl);
 
-        assertThatThrownBy(() -> client.callWrongPath("Team"))
+        assertThatThrownBy(() -> client.callWrongPayload("Team"))
                 .isInstanceOf(RestClientResponseException.class);
     }
 }
