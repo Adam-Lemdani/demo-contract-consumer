@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Consumer verification against the provider's LOCAL stubs.
  *
  * <p>Stub coordinates and {@code StubsMode.LOCAL} are supplied via
- * {@code stubrunner.*} properties (see src/test/resources/application.properties),
+ * {@code stubrunner.*} properties (see src/test/resources/application.yml),
  * which are filtered from the pom's {@code provider.stubs.*} properties. This is
  * what lets cross-repo CI override the version to the one it just installed into
  * the runner-local .m2, without editing any Java code.
@@ -29,8 +29,6 @@ class GreetingClientStubRunnerTest {
         String stubBaseUrl = stubFinder.findStubUrl("demo-contract-provider").toString();
 
         GreetingClient client = new GreetingClient(stubBaseUrl);
-
-
         assertThat(client.greetingFor("Team")).isEqualTo("Hello Team");
     }
 }

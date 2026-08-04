@@ -2,14 +2,16 @@ package com.example.consumer;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 /**
  * Thin HTTP client for the provider's greetings endpoint.
  *
  * <p>The base URL is injected so tests can point it at the Stub Runner port.
- * The path {@code /api/greetings/{name}} is the runtime relationship that the
- * contract protects: changing it here is the canonical breaking consumer change.
+ * The JSON payload is the runtime relationship that the contract protects:
+ * changing the request field or response field is the canonical breaking
+ * consumer change.
  */
 @Component
 public class GreetingClient {
@@ -21,10 +23,12 @@ public class GreetingClient {
     }
 
     public String greetingFor(String name) {
-        Greeting greeting = restClient.get()
-                .uri("/api/greetings/{name}", name)
+        GreetingResponse greeting = restClient.post()
+                .uri("/api/greetings")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new GreetingRequest(name))
                 .retrieve()
-                .body(Greeting.class);
+                .body(GreetingResponse.class);
         return greeting == null ? null : greeting.message();
     }
 }

@@ -1,10 +1,12 @@
 package com.example.consumer;
 
+import java.util.Map;
+import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 /**
- * Test-only client that intentionally calls a path the provider contract does
- * not define, used by {@link BreakingConsumerScenarioTest}.
+ * Test-only client that intentionally sends a payload shape the provider
+ * contract does not define, used by {@link BreakingConsumerScenarioTest}.
  */
 class UncontractedClient {
 
@@ -14,9 +16,11 @@ class UncontractedClient {
         this.restClient = RestClient.builder().baseUrl(baseUrl).build();
     }
 
-    String callWrongPath(String name) {
-        return restClient.get()
-                .uri("/api/salutations/{name}", name)
+    String callWrongPayload(String name) {
+        return restClient.post()
+                .uri("/api/greetings")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("fullName", name))
                 .retrieve()
                 .body(String.class);
     }
