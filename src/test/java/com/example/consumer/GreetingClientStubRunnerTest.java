@@ -20,7 +20,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @AutoConfigureStubRunner
 class GreetingClientStubRunnerTest {
-
     @Autowired
     private StubFinder stubFinder;
 
