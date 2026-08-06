@@ -19,19 +19,31 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, java-runner]
     timeout-minutes: 15
     steps:
+      - name: Validate partner repo format
+        run: |
+          set -euo pipefail
+          PARTNER='${{ vars.PARTNER_REPO }}'
+          [[ "$PARTNER" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+            echo "Invalid PARTNER_REPO '$PARTNER'. Expected owner/name." >&2
+            exit 1
+          }
+
       - name: Checkout consumer
         uses: actions/checkout@v4
         with:
           path: consumer
+          persist-credentials: false
 
       - name: Checkout provider (default branch) for local stubs
         uses: actions/checkout@v4
         with:
           repository: ${{ vars.PARTNER_REPO }}
           path: provider
+          persist-credentials: false
 
       - uses: actions/setup-java@v4
         with:
