@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   regenerate:
-    runs-on: [self-hosted, java-runner-scale-set-canary]
+    runs-on: [self-hosted, java-runner]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
