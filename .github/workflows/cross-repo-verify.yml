@@ -20,10 +20,7 @@ on:
         description: 'Verify against a single provider owner/name (manual fallback)'
         required: false
 
-permissions:
-  contents: read
-  pull-requests: write
-  statuses: write
+permissions: {}
 
 concurrency:
   group: cross-repo-verify-${{ github.event.pull_request.number || github.ref }}
@@ -31,6 +28,8 @@ concurrency:
 
 jobs:
   discover:
+    permissions:
+      contents: read
     runs-on: [self-hosted, java-runner]
     timeout-minutes: 10
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
@@ -41,6 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Resolve PR SHA and upstream coordinates from application.yml
         id: ctx
@@ -48,13 +48,14 @@ jobs:
           set -euo pipefail
           SHA="${{ github.event.pull_request.head.sha || github.sha }}"
           echo "consumer_sha=$SHA" >> "$GITHUB_OUTPUT"
-          # Read UPSTREAM stub coordinates from the authoritative application.yml.
-          # stubrunner.ids entries look like: groupId:artifactId:version:classifier
-          command -v yq >/dev/null || sudo snap install yq >/dev/null 2>&1 || {
-            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-            sudo chmod +x /usr/local/bin/yq; }
-          COORDS=$(yq -r '.stubrunner.ids[]' src/test/resources/application.yml \
+          # Read UPSTREAM stub coordinates from authoritative application.yml.
+          # Avoid dynamic tool installation; parse the known ids list shape directly.
+          COORDS=$(sed -nE 's/^[[:space:]]*-[[:space:]]*"([^"]+)".*/\1/p' src/test/resources/application.yml \
                     | sed -E 's/^([^:]+):([^:]+):.*/\1:\2/' | sort -u)
+          if [ -z "$COORDS" ]; then
+            echo "No stubrunner.ids entries found in src/test/resources/application.yml" >&2
+            exit 1
+          fi
           echo "Upstream coordinates:"; echo "$COORDS"
           # Emit as a space-separated list for the discovery script.
           echo "coords<<EOF" >> "$GITHUB_OUTPUT"; echo "$COORDS" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
@@ -77,6 +78,7 @@ jobs:
             const fs = require('fs');
             const coordsRaw = ${{ toJSON(steps.ctx.outputs.coords) }} || '';
             const coords = coordsRaw.split('\n').map(s => s.trim()).filter(Boolean);
+            const repoRe = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
             const candidates = new Set();
             const owner = context.repo.owner;
@@ -91,9 +93,27 @@ jobs:
             } catch (e) { core.info(`No service graph (${e.message}); relying on application.yml + search.`); }
 
             const manual = ${{ toJSON(github.event.inputs.provider_repo) }};
-            if (manual) candidates.add(norm(manual));
+            if (manual) {
+              const full = norm(manual);
+              if (!repoRe.test(full)) {
+                core.setFailed(`Invalid provider_repo input '${manual}'. Expected owner/name.`);
+                return;
+              }
+              if (!full.startsWith(`${owner}/`)) {
+                core.setFailed(`provider_repo '${manual}' must be in owner '${owner}'.`);
+                return;
+              }
+              candidates.add(full);
+            }
             const configured = ${{ toJSON(vars.PARTNER_REPO) }};
-            if (configured) candidates.add(norm(configured));
+            if (configured) {
+              const full = norm(configured);
+              if (!repoRe.test(full)) {
+                core.warning(`Ignoring invalid PARTNER_REPO value '${configured}'`);
+              } else {
+                candidates.add(full);
+              }
+            }
 
             // For each upstream coordinate, find the repo that PRODUCES it.
             // Code Search is text-based, may lag indexing, and is NOT authoritative.
@@ -127,6 +147,8 @@ jobs:
   verify:
     needs: discover
     if: needs.discover.outputs.providers != '[]' && needs.discover.outputs.providers != ''
+    permissions:
+      contents: read
     runs-on: [self-hosted, java-runner]
     timeout-minutes: 20
     strategy:
@@ -189,6 +211,7 @@ jobs:
           ref: ${{ needs.discover.outputs.consumer_sha }}
           fetch-depth: 1
           path: consumer
+          persist-credentials: false
 
       - name: Checkout provider (ticket-matched branch or default)
         uses: actions/checkout@v4
@@ -198,6 +221,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token || secrets.DISPATCH_PAT || github.token }}
           fetch-depth: 1
           path: provider
+          persist-credentials: false
 
       - uses: actions/setup-java@v4
         with:
@@ -239,6 +263,10 @@ jobs:
   report:
     needs: [ discover, verify ]
     if: always() && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
     runs-on: [self-hosted, java-runner]
     timeout-minutes: 10
     steps:

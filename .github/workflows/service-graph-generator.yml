@@ -24,22 +24,27 @@ concurrency:
 
 jobs:
   regenerate:
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: [self-hosted, java-runner]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Extract upstream coordinates from application.yml
         id: coords
         run: |
           set -euo pipefail
-          command -v yq >/dev/null || sudo snap install yq >/dev/null 2>&1 || {
-            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-            sudo chmod +x /usr/local/bin/yq; }
-          COORDS=$(yq -r '.stubrunner.ids[]' src/test/resources/application.yml \
+          COORDS=$(sed -nE 's/^[[:space:]]*-[[:space:]]*"([^"]+)".*/\1/p' src/test/resources/application.yml \
                     | sed -E 's/^([^:]+):([^:]+):.*/\1:\2/' | sort -u)
+          if [ -z "$COORDS" ]; then
+            echo "No stubrunner.ids entries found in src/test/resources/application.yml" >&2
+            exit 1
+          fi
           echo "coords<<EOF" >> "$GITHUB_OUTPUT"; echo "$COORDS" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App token
@@ -63,13 +68,20 @@ jobs:
             const artifactIds = coords.map(c => c.split(':')[1]).filter(Boolean);
             const owner = context.repo.owner;
             const self = `${owner}/${context.repo.repo}`;
+            const repoRe = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
             const g = JSON.parse(fs.readFileSync(path, 'utf8'));
             const overrides = (g.manualOverrides && g.manualOverrides.upstreamProviders) || [];
 
             const found = new Set();
             const configured = ${{ toJSON(vars.PARTNER_REPO) }};
-            if (configured) found.add(configured);
+            if (configured) {
+              if (!repoRe.test(configured)) {
+                core.warning(`Ignoring invalid PARTNER_REPO value '${configured}'`);
+              } else {
+                found.add(configured);
+              }
+            }
 
             for (const a of artifactIds) {
               try {
